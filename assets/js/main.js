@@ -138,3 +138,92 @@
   }
 
 })();
+
+
+  // ── 7. EVENT SIGN-UP FORM (inline) ──────────
+
+  (function () {
+    var form    = document.getElementById('bl-signup-form');
+    var success = document.getElementById('bl-signup-success');
+    var errBox  = document.getElementById('bl-signup-error');
+    var submit  = document.getElementById('bl-signup-submit');
+    var section = document.querySelector('.event-signup-box');
+
+    if (!form) return;
+
+    form.addEventListener('submit', function (e) {
+      e.preventDefault();
+
+      // Client-side validation
+      var required = form.querySelectorAll('[required]');
+      var valid = true;
+      required.forEach(function (el) {
+        el.style.borderColor = '';
+        if (el.type === 'checkbox') {
+          if (!el.checked) { el.style.outline = '2px solid var(--red)'; valid = false; }
+          else { el.style.outline = ''; }
+        } else {
+          if (!el.value.trim()) { el.style.borderColor = 'var(--red)'; valid = false; }
+        }
+      });
+      if (!valid) {
+        showError('Please fill in all required fields and check the consent box.');
+        return;
+      }
+
+      // Show spinner
+      submit.disabled = true;
+      var label   = submit.querySelector('.bl-btn__label');
+      var spinner = submit.querySelector('.bl-btn__spinner');
+      if (label)   label.hidden   = true;
+      if (spinner) spinner.hidden = false;
+      if (errBox)  errBox.hidden  = true;
+
+      var data = new FormData(form);
+      data.append('action',   'blusiast_event_signup');
+      data.append('event_id', form.dataset.eventId);
+
+      var ajaxUrl = (window.bluSite && bluSite.ajaxUrl)
+        ? bluSite.ajaxUrl
+        : '/wp-admin/admin-ajax.php';
+
+      fetch(ajaxUrl, { method: 'POST', body: data })
+        .then(function (res) { return res.json(); })
+        .then(function (json) {
+          if (json.success) {
+            // Hide the whole form, show success
+            form.hidden = true;
+            if (success) {
+              success.hidden = false;
+              success.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+          } else {
+            var msg = (json.data && json.data.message)
+              ? json.data.message
+              : 'Something went wrong. Please try again.';
+            showError(msg);
+            resetSubmit();
+          }
+        })
+        .catch(function (err) {
+          showError('Network error. Please try again.');
+          resetSubmit();
+        });
+    });
+
+    function showError(msg) {
+      if (!errBox) return;
+      errBox.textContent = msg;
+      errBox.hidden = false;
+      errBox.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+
+    function resetSubmit() {
+      submit.disabled = false;
+      var label   = submit.querySelector('.bl-btn__label');
+      var spinner = submit.querySelector('.bl-btn__spinner');
+      if (label)   label.hidden   = false;
+      if (spinner) spinner.hidden = true;
+    }
+  }());
+

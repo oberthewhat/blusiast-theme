@@ -5,7 +5,7 @@
 
 if ( ! defined( 'ABSPATH' ) ) exit;
 
-define( 'BLUSIAST_VERSION', '1.0.0' );
+define( 'BLUSIAST_VERSION', '1.0.1' );
 define( 'BLUSIAST_DIR',     get_template_directory() );
 define( 'BLUSIAST_URI',     get_template_directory_uri() );
 
@@ -434,6 +434,9 @@ remove_action( 'admin_print_styles', 'print_emoji_styles' );
 // ─────────────────────────────────────────
 
 require_once BLUSIAST_DIR . '/inc/nav-walker.php';
+require_once BLUSIAST_DIR . '/inc/member-cms.php';
+require_once BLUSIAST_DIR . '/inc/member-portal.php';
+require_once BLUSIAST_DIR . '/inc/coaster-reviews.php';
 
 
 function blusiast_customize_register( $wp_customize ) {

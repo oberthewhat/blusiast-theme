@@ -114,7 +114,7 @@ if ( $hero_bg ) {
                     </p>
                 <?php endif; ?>
 
-                <div class="about-story__divider" aria-hidden="true"></div>
+                <div class="about-story__divider" aria-hidden="true"><span></span></div>
 
                 <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:28px;">
                     <a href="<?php echo esc_url( get_permalink( get_page_by_path('membership') ) ); ?>" class="bl-btn bl-btn--primary">
@@ -136,7 +136,7 @@ if ( $hero_bg ) {
      3. STAT STRIP
      ════════════════════════════════════════════ -->
 
-<div class="stat-strip">
+<div class="stat-strip" style="display:none;">
     <div class="container">
         <div class="stat-strip__inner">
             <div class="stat-strip__item">
@@ -234,11 +234,12 @@ if ( $hero_bg ) {
             [ 'member_name' => 'Team Member',    'member_title' => 'Vice President',        'member_bio' => 'Add this bio via the About page team repeater in your WordPress dashboard.', 'member_photo' => null, 'member_instagram' => '', 'member_facebook' => '' ],
             [ 'member_name' => 'Team Member',    'member_title' => 'Events Coordinator',    'member_bio' => 'Add this bio via the About page team repeater in your WordPress dashboard.', 'member_photo' => null, 'member_instagram' => '', 'member_facebook' => '' ],
             [ 'member_name' => 'Team Member',    'member_title' => 'Community Manager',     'member_bio' => 'Add this bio via the About page team repeater in your WordPress dashboard.', 'member_photo' => null, 'member_instagram' => '', 'member_facebook' => '' ],
+            [ 'member_name' => 'Team Member',    'member_title' => 'Secretary',             'member_bio' => 'Add this bio via the About page team repeater in your WordPress dashboard.', 'member_photo' => null, 'member_instagram' => '', 'member_facebook' => '' ],
         ];
 
         ?>
 
-        <div class="about-team__grid">
+        <div class="about-team__list">
             <?php foreach ( $render_team as $i => $member ) :
                 $photo     = $member['member_photo']     ?? null;
                 $photo_url = is_array($photo) ? ($photo['url'] ?? '') : $photo;
@@ -249,48 +250,44 @@ if ( $hero_bg ) {
                 $instagram = $member['member_instagram'] ?? '';
                 $facebook  = $member['member_facebook']  ?? '';
             ?>
-                <div class="about-team-card bl-animate" style="animation-delay:<?php echo esc_attr( ($i % 4) * 0.08 ); ?>s">
+                <div class="about-team-row bl-animate" style="animation-delay:<?php echo esc_attr( $i * 0.08 ); ?>s">
 
                     <!-- Photo -->
-                    <div class="about-team-card__img-wrap">
+                    <div class="about-team-row__img-wrap">
                         <?php if ( $photo_url ) : ?>
                             <img
                                 src="<?php echo esc_url($photo_url); ?>"
                                 alt="<?php echo esc_attr($photo_alt ?: $name); ?>"
-                                class="about-team-card__img"
+                                class="about-team-row__img"
                                 loading="lazy">
                         <?php else : ?>
-                            <div class="about-team-card__img-placeholder" aria-hidden="true">
+                            <div class="about-team-row__img-placeholder" aria-hidden="true">
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1">
                                     <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
                                     <circle cx="12" cy="7" r="4"/>
                                 </svg>
                             </div>
                         <?php endif; ?>
-
-                        <!-- Role badge overlaid on bottom of photo -->
-                        <?php if ($title) : ?>
-                            <div class="about-team-card__badge">
-                                <span><?php echo esc_html($title); ?></span>
-                            </div>
-                        <?php endif; ?>
                     </div>
 
-                    <!-- Body: name, bio, socials -->
-                    <div class="about-team-card__body">
-
-                        <strong class="about-team-card__name"><?php echo esc_html($name); ?></strong>
+                    <!-- Bio content -->
+                    <div class="about-team-row__body">
+                        <div class="about-team-row__header">
+                            <strong class="about-team-row__name"><?php echo esc_html($name); ?></strong>
+                            <?php if ($title) : ?>
+                                <span class="about-team-row__title"><?php echo esc_html($title); ?></span>
+                            <?php endif; ?>
+                        </div>
 
                         <?php if ($bio) : ?>
-                            <p class="about-team-card__bio"><?php echo esc_html($bio); ?></p>
+                            <p class="about-team-row__bio"><?php echo esc_html($bio); ?></p>
                         <?php endif; ?>
 
                         <?php if ($instagram || $facebook) : ?>
-                            <div class="about-team-card__social">
+                            <div class="about-team-row__social">
                                 <?php if ($instagram) : ?>
                                     <a href="<?php echo esc_url($instagram); ?>"
-                                       target="_blank"
-                                       rel="noopener noreferrer"
+                                       target="_blank" rel="noopener noreferrer"
                                        class="social-link"
                                        aria-label="<?php echo esc_attr($name); ?> on Instagram">
                                         <svg viewBox="0 0 24 24" fill="currentColor">
@@ -300,8 +297,7 @@ if ( $hero_bg ) {
                                 <?php endif; ?>
                                 <?php if ($facebook) : ?>
                                     <a href="<?php echo esc_url($facebook); ?>"
-                                       target="_blank"
-                                       rel="noopener noreferrer"
+                                       target="_blank" rel="noopener noreferrer"
                                        class="social-link"
                                        aria-label="<?php echo esc_attr($name); ?> on Facebook">
                                         <svg viewBox="0 0 24 24" fill="currentColor">
@@ -311,11 +307,11 @@ if ( $hero_bg ) {
                                 <?php endif; ?>
                             </div>
                         <?php endif; ?>
-
                     </div>
+
                 </div>
             <?php endforeach; ?>
-        </div>
+        </div><!-- /.about-team__list -->
 
     </div>
 </section>

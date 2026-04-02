@@ -35,6 +35,8 @@ $stat_3_label = function_exists('get_field') ? get_field('hp_stat_3_label') : 'M
 
 <!-- <?php get_template_part( 'template-parts/sections/merch-preview' ); ?> -->
 
+<?php echo do_shortcode('[bl_review_carousel]'); ?>
+
 <?php get_template_part( 'template-parts/sections/email-signup' ); ?>
 
 <?php

@@ -41,12 +41,7 @@
 
         <!-- CTA Buttons -->
         <div class="site-header__actions">
-            <a href="<?php echo esc_url( get_permalink( get_page_by_path( 'membership' ) ) ); ?>" class="bl-btn bl-btn--ghost bl-btn--sm">
-                Sign In
-            </a>
-            <a href="<?php echo esc_url( get_permalink( get_page_by_path( 'membership' ) ) ); ?>" class="bl-btn bl-btn--primary bl-btn--sm">
-                Join Now
-            </a>
+            <?php blusiast_header_account_buttons(); ?>
         </div>
 
         <!-- Mobile Menu Toggle -->
@@ -68,10 +63,10 @@
 function blusiast_fallback_menu() {
     echo '<ul class="nav__list">';
     echo '<li class="nav__item"><a class="nav__link" href="' . esc_url( home_url('/') ) . '">Home</a></li>';
-    echo '<li class="nav__item"><a class="nav__link" href="#">About</a></li>';
-    echo '<li class="nav__item"><a class="nav__link" href="#">Events</a></li>';
+    echo '<li class="nav__item"><a class="nav__link" href="about-us">About</a></li>';
+    echo '<li class="nav__item"><a class="nav__link" href="/events">Events</a></li>';
     echo '<li class="nav__item"><a class="nav__link" href="#">Gallery</a></li>';
-    echo '<li class="nav__item"><a class="nav__link" href="#">Blog</a></li>';
-    echo '<li class="nav__item"><a class="nav__link" href="#">Shop</a></li>';
+    echo '<li class="nav__item"><a class="nav__link" href="/blog">Blog</a></li>';
+    echo '<li class="nav__item"><a class="nav__link" href="#">Shop (Coming Soon)</a></li>';
     echo '</ul>';
 }
