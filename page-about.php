@@ -24,6 +24,7 @@ $members      = function_exists('get_field') ? get_field('about_member_count')  
 $parks        = function_exists('get_field') ? get_field('about_parks_visited') : '50+';
 $countries    = function_exists('get_field') ? get_field('about_countries')     : '10+';
 $awards       = function_exists('get_field') ? get_field('about_awards')        : [];
+$leadership_photo = function_exists('get_field') ? get_field('about_leadership_photo') : null;
 // Repeater fields: member_name, member_title, member_bio, member_photo, member_instagram, member_facebook
 $team         = function_exists('get_field') ? get_field('about_team')          : [];
 ?>
@@ -104,13 +105,25 @@ if ( $hero_bg ) {
                     </div>
                 <?php else : ?>
                     <p class="bl-body-lg" style="margin-bottom:20px;">
-                        <?php esc_html_e( 'Founded in 2022, Blusiast — short for Black Enthusiasts — started as a gathering of passionate roller coaster and theme park fans who wanted to see themselves represented in enthusiast spaces.', 'blusiast' ); ?>
+                        <?php esc_html_e( 'Founded in 2022, Blusiast — short for Black Enthusiasts — grew out of something much simpler.', 'blusiast' ); ?>
                     </p>
                     <p class="bl-body-md" style="margin-bottom:20px;">
-                        <?php esc_html_e( 'What began as a small group chat quickly grew into a global community spanning families, adults, and teens across multiple countries — all united by a love of the ride and a commitment to inclusion.', 'blusiast' ); ?>
+                        <?php esc_html_e( 'The idea started on September 7, 2020, at Kings Island. What began as a conversation turned into a vision for a space where Black coaster and theme park fans could feel seen, connected, and fully part of the enthusiast community.', 'blusiast' ); ?>
+                    </p>
+                    <p class="bl-body-md" style="margin-bottom:20px;">
+                        <?php esc_html_e( 'From there, it moved from an idea into action.', 'blusiast' ); ?>
+                    </p>
+                    <p class="bl-body-md" style="margin-bottom:20px;">
+                        <?php esc_html_e( 'On June 18, 2022, during Juneteenth weekend, Blusiast hosted its first official meetup at Kings Dominion. That day marked the real beginning — not just a group chat, but a community showing up in person, riding together, and building something that felt like it was theirs.', 'blusiast' ); ?>
+                    </p>
+                    <p class="bl-body-md" style="margin-bottom:20px;">
+                        <?php esc_html_e( 'Since then, what started as a small group chat has grown into a global community. Families, adults, and teens from across the country and beyond, all brought together by a shared love of coasters and the experiences that come with them.', 'blusiast' ); ?>
+                    </p>
+                    <p class="bl-body-md" style="margin-bottom:20px;">
+                        <?php esc_html_e( 'The goal has stayed the same from the beginning: to educate, inspire, and create a space where everyone feels welcome.', 'blusiast' ); ?>
                     </p>
                     <p class="bl-body-md">
-                        <?php esc_html_e( 'Our goal is simple: educate, inspire, and welcome every enthusiast regardless of background. Because the thrill of a great coaster belongs to everyone.', 'blusiast' ); ?>
+                        <?php esc_html_e( 'Because the thrill of a great coaster belongs to everyone.', 'blusiast' ); ?>
                     </p>
                 <?php endif; ?>
 
@@ -187,7 +200,7 @@ if ( $hero_bg ) {
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="m6.115 5.19.319 1.913A6 6 0 0 0 8.11 10.36L9.75 12l-.387.775c-.217.433-.132.956.21 1.298l1.348 1.348c.21.21.329.497.329.795v1.089c0 .426.24.815.622 1.006l.153.076c.433.217.956.132 1.298-.21l.723-.723a8.7 8.7 0 0 0 2.288-4.042 1.087 1.087 0 0 0-.358-1.099l-1.33-1.108c-.251-.21-.582-.299-.905-.245l-1.17.195a1.125 1.125 0 0 1-.98-.314l-.295-.295a1.125 1.125 0 0 1 0-1.591l.13-.132a1.125 1.125 0 0 1 1.3-.21l.603.302a.809.809 0 0 0 1.086-1.086L14.25 7.5l1.256-.837a4.5 4.5 0 0 0 1.528-1.732l.146-.292M6.115 5.19A9 9 0 1 0 17.18 4.64M6.115 5.19A8.965 8.965 0 0 1 12 3c1.929 0 3.716.607 5.18 1.64"/></svg>
                 </div>
                 <h3 class="about-value-card__title"><?php esc_html_e( 'Diversity & Inclusion', 'blusiast' ); ?></h3>
-                <p class="about-value-card__body"><?php esc_html_e( 'All races, ages, and backgrounds belong here. Representation matters — in the park, in the photos, and in the conversation.', 'blusiast' ); ?></p>
+                <p class="about-value-card__body"><?php esc_html_e( 'All races, ages, and backgrounds are welcome here. Representation matters — in the park, in the photos, and in the conversation.', 'blusiast' ); ?></p>
             </div>
 
             <div class="about-value-card bl-animate" style="animation-delay:.16s">
@@ -218,6 +231,19 @@ if ( $hero_bg ) {
 <section class="about-team section" id="team" style="background:var(--black);">
     <div class="container">
 
+        <?php
+        $lphoto_url = '';
+        if ( $leadership_photo ) {
+            $lphoto_url = is_array($leadership_photo) ? ($leadership_photo['url'] ?? '') : $leadership_photo;
+        }
+        if ( $lphoto_url ) : ?>
+            <div style="text-align:center;margin:0 auto 40px;max-width:900px;">
+                <img src="<?php echo esc_url($lphoto_url); ?>"
+                     alt="<?php echo esc_attr( is_array($leadership_photo) ? ($leadership_photo['alt'] ?? 'Blusiast Leadership') : 'Blusiast Leadership' ); ?>"
+                     style="width:100%;border-radius:12px;display:block;"
+                     loading="lazy">
+            </div>
+        <?php endif; ?>
         <div class="section-header" style="text-align:center;max-width:600px;margin:0 auto 56px;">
             <p class="bl-label"><?php esc_html_e( 'The People Behind It', 'blusiast' ); ?></p>
             <h2 class="bl-display-md"><?php esc_html_e( 'Meet Our Leadership', 'blusiast' ); ?></h2>

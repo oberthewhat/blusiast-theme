@@ -61,7 +61,11 @@ if ( ! empty( $hero_logo_image ) ) {
                 <?php endif; ?>
 
                 <div class="hero__actions bl-animate" style="animation-delay:.3s">
-                    <a href="<?php echo esc_url( get_permalink( get_page_by_path( 'membership' ) ) ); ?>" class="bl-btn bl-btn--primary">
+                    <?php
+                    $portal_url   = function_exists( 'blusiast_portal_url' ) ? blusiast_portal_url() : home_url( '/member-portal/' );
+                    $register_url = add_query_arg( 'tab', 'register', $portal_url );
+                    ?>
+                    <a href="<?php echo esc_url( $register_url ); ?>" class="bl-btn bl-btn--primary">
                         <?php esc_html_e( 'Join the Community', 'blusiast' ); ?>
                         <?php blusiast_icon( 'arrow-right' ); ?>
                     </a>

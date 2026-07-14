@@ -80,7 +80,10 @@ $photos  = $wpdb->get_results( $wpdb->prepare(
                         <span style="font-size:13px;color:var(--gray-2);" data-zip-lookup="<?php echo esc_attr($member->zip); ?>">📍 <?php echo esc_html($member->zip); ?></span>
                     <?php endif; ?>
                     <?php if ( $member->fave_coaster ) : ?>
-                        <span style="font-size:13px;color:var(--gray-2);">🎢 <?php echo esc_html( $member->fave_coaster ); ?></span>
+                        <span style="font-size:13px;color:var(--gray-2);">🥇 <?php echo esc_html( $member->fave_coaster ); ?></span>
+                    <?php endif; ?>
+                    <?php if ( ! empty( $member->coaster_count ) && (int)$member->coaster_count > 0 ) : ?>
+                        <span style="font-size:13px;color:var(--gray-2);">🎢 <?php echo esc_html( number_format( (int)$member->coaster_count ) ); ?> coaster credits</span>
                     <?php endif; ?>
                     <?php if ( $member->instagram ) : ?>
                         <a href="https://instagram.com/<?php echo esc_attr( $member->instagram ); ?>" target="_blank" rel="noopener" style="font-size:13px;color:var(--red);">@<?php echo esc_html( $member->instagram ); ?></a>
@@ -168,6 +171,17 @@ $photos  = $wpdb->get_results( $wpdb->prepare(
                             <span style="font-size:13px;color:var(--gray-1);">Member Since</span>
                             <span style="font-size:13px;color:var(--white);"><?php echo esc_html( date('M Y', strtotime($member->joined_at)) ); ?></span>
                         </div>
+
+                        <?php if ( blusiast_can_see_member_id( $member ) ) : ?>
+                        <div style="border-top:1px solid var(--surface-3);padding-top:12px;margin-top:4px;">
+                            <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.1em;color:var(--gray-1);margin-bottom:8px;">Member ID <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--gray-2);">(private)</span></div>
+                            <div style="font-family:'Courier New',Courier,monospace;font-size:15px;font-weight:700;color:var(--white);letter-spacing:.12em;"><?php echo esc_html( blusiast_get_member_number( $member->id ) ); ?></div>
+                            <div style="margin-top:10px;">
+                                <?php echo blusiast_member_id_card_html( $member ); ?>
+                            </div>
+                        </div>
+                        <?php endif; ?>
+
                     </div>
 
                     <?php if ( $events ) : ?>

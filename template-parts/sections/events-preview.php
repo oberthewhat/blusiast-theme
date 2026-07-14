@@ -5,9 +5,22 @@
  * Layout: featured image left, details right.
  */
 
-$events_query = blusiast_get_upcoming_events(3);
+// On the homepage the soonest event is already featured in the Next Event
+// section above, so pull 4 and drop the first one to avoid duplication.
+$skip_first   = is_front_page();
+$events_query = blusiast_get_upcoming_events($skip_first ? 4 : 3);
+
 if (!$events_query->have_posts())
     return;
+
+if ($skip_first) {
+    array_shift($events_query->posts);
+    $events_query->post_count = count($events_query->posts);
+    if (!$events_query->post_count) {
+        wp_reset_postdata();
+        return;
+    }
+}
 ?>
 
 <section class="events-preview section">
@@ -105,12 +118,7 @@ if (!$events_query->have_posts())
                                     <?php echo esc_html($time); ?>
                                 </span>
                             <?php endif; ?>
-                            <?php if ($price): ?>
-                                <span class="event-card__meta-sep" aria-hidden="true"></span>
-                                <span class="event-card__meta-item event-card__meta-item--price">
-                                    <?php echo esc_html($price); ?>
-                                </span>
-                            <?php endif; ?>
+
                         </div>
 
                         <?php $excerpt = get_the_excerpt();

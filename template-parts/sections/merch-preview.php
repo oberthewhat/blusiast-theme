@@ -21,13 +21,11 @@ if ( $has_woo ) {
                 <p class="bl-label"><?php esc_html_e( 'Blusiast Gear', 'blusiast' ); ?></p>
                 <h2 class="bl-display-md"><?php esc_html_e( 'Rep the Culture', 'blusiast' ); ?></h2>
             </div>
-            <?php if ( $has_woo ) : ?>
-            <a href="<?php echo esc_url( wc_get_page_permalink( 'shop' ) ); ?>"
+            <a href="<?php echo esc_url( home_url( '/shop/' ) ); ?>"
                class="bl-btn bl-btn--ghost bl-btn--sm">
                 <?php esc_html_e( 'Shop All', 'blusiast' ); ?>
                 <?php blusiast_icon( 'arrow-right' ); ?>
             </a>
-            <?php endif; ?>
         </div>
 
         <div class="merch-grid">

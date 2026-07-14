@@ -28,7 +28,7 @@ add_action( 'after_switch_theme', 'blusiast_portal_install_db' );
 add_action( 'init',               'blusiast_portal_install_db' );  // runs once, gated by version check
 
 function blusiast_portal_install_db() {
-    if ( get_option( 'blusiast_portal_db_version' ) === '1.2' ) return;
+    if ( get_option( 'blusiast_portal_db_version' ) === '1.3' ) return;
 
     global $wpdb;
     $mtable = $wpdb->prefix . 'bl_members';
@@ -45,6 +45,7 @@ function blusiast_portal_install_db() {
     if ( ! in_array( 'instagram',      $cols ) ) $add[] = "ADD COLUMN instagram VARCHAR(100) NOT NULL DEFAULT ''";
     if ( ! in_array( 'handle',         $cols ) ) $add[] = "ADD COLUMN handle VARCHAR(50) NOT NULL DEFAULT ''";
     if ( ! in_array( 'dir_name_pref',  $cols ) ) $add[] = "ADD COLUMN dir_name_pref VARCHAR(10) NOT NULL DEFAULT 'real'";
+    if ( ! in_array( 'coaster_count',  $cols ) ) $add[] = "ADD COLUMN coaster_count INT(6) UNSIGNED NOT NULL DEFAULT 0";
 
     if ( $add ) {
         $wpdb->query( "ALTER TABLE $mtable " . implode( ', ', $add ) );
@@ -68,6 +69,12 @@ function blusiast_portal_install_db() {
 
     require_once ABSPATH . 'wp-admin/includes/upgrade.php';
     dbDelta( $sql );
+
+    // Migration: tie photo submissions to an event (past-event galleries)
+    $pcols = $wpdb->get_col( "SHOW COLUMNS FROM $ptable" );
+    if ( $pcols && ! in_array( 'event_id', $pcols ) ) {
+        $wpdb->query( "ALTER TABLE $ptable ADD COLUMN event_id BIGINT UNSIGNED NOT NULL DEFAULT 0, ADD KEY event_id (event_id)" );
+    }
 
     // Help messages table
     $htable = $wpdb->prefix . 'bl_help_messages';
@@ -94,7 +101,7 @@ function blusiast_portal_install_db() {
         );
     }
 
-    update_option( 'blusiast_portal_db_version', '1.2' );
+    update_option( 'blusiast_portal_db_version', '1.3' );
 }
 
 
@@ -131,16 +138,23 @@ function blusiast_get_or_create_member() {
     $user = wp_get_current_user();
 
     // Use INSERT IGNORE so a race condition or duplicate email can never create two rows
-    $wpdb->query( $wpdb->prepare(
-        "INSERT IGNORE INTO {$wpdb->prefix}bl_members
-         (email, first_name, last_name, phone, zip, wp_user_id, account_status, joined_at)
-         VALUES (%s, %s, %s, '', '', %d, 'free', %s)",
-        $user->user_email,
-        $user->first_name  ?: $user->display_name,
-        $user->last_name   ?: '',
-        $user->ID,
-        current_time( 'mysql' )
+    $existing = $wpdb->get_var( $wpdb->prepare(
+        "SELECT id FROM {$wpdb->prefix}bl_members WHERE email = %s LIMIT 1",
+        $user->user_email
     ) );
+    if ( ! $existing ) {
+        $wpdb->insert( $wpdb->prefix . 'bl_members', [
+            'email'          => $user->user_email,
+            'first_name'     => $user->first_name ?: $user->display_name,
+            'last_name'      => $user->last_name ?: '',
+            'phone'          => '',
+            'zip'            => '',
+            'wp_user_id'     => $user->ID,
+            'account_status' => 'free',
+            'member_number'  => blusiast_generate_member_number(),
+            'joined_at'      => blusiast_eastern_now(),
+        ], [ '%s', '%s', '%s', '%s', '%s', '%d', '%s', '%s', '%s' ] );
+    }
 
     return blusiast_get_current_member();
 }
@@ -169,12 +183,14 @@ add_action( 'after_setup_theme', function() {
 add_action( 'wp_enqueue_scripts', 'blusiast_portal_enqueue' );
 
 function blusiast_portal_enqueue() {
-    if ( ! is_page( 'member-portal' ) ) return;
+    if ( ! is_page( 'member-portal' ) && ! is_singular( 'bl_event' ) ) return;
     wp_add_inline_script( 'blusiast-main', blusiast_portal_js() );
     wp_add_inline_style( 'blusiast-main', blusiast_portal_css() );
     wp_localize_script( 'blusiast-main', 'bluPortal', [
         'ajaxUrl'    => admin_url( 'admin-ajax.php' ),
         'nonce'      => wp_create_nonce( 'blusiast_portal_nonce' ),
+        'restUrl'    => rest_url( 'blusiast/v1/parks' ),
+        'restNonce'  => wp_create_nonce( 'wp_rest' ),
         'portalUrl'  => blusiast_portal_url(),
         'isLoggedIn' => is_user_logged_in() ? 1 : 0,
     ] );
@@ -272,8 +288,14 @@ function blusiast_portal_register() {
         'zip'            => $zip,
         'wp_user_id'     => $wp_user_id,
         'account_status' => 'free',
-        'joined_at'      => current_time( 'mysql' ),
-    ], [ '%s', '%s', '%s', '%s', '%s', '%d', '%s', '%s' ] );
+        'member_number'  => blusiast_generate_member_number(),
+        'joined_at'      => blusiast_eastern_now(),
+    ], [ '%s', '%s', '%s', '%s', '%s', '%d', '%s', '%s', '%s' ] );
+
+    // Sync new member to Brevo
+    if ( function_exists( 'blusiast_brevo_sync_contact' ) ) {
+        blusiast_brevo_sync_contact( $email, $first_name, $last_name, 'free' );
+    }
 
     // Log them in immediately
     wp_set_auth_cookie( $wp_user_id, true );
@@ -299,7 +321,7 @@ Email: {$email}
 Phone: {$phone}
 Zip:   {$zip}
 
-View in CMS: " . admin_url('admin.php?page=blusiast-all-members')
+View in CRM: " . admin_url('admin.php?page=blusiast-all-members')
     );
 
     wp_send_json_success( [ 'redirect' => $portal_url ] );
@@ -333,6 +355,7 @@ function blusiast_update_profile() {
     $fave_coaster  = sanitize_text_field( $_POST['fave_coaster'] ?? '' );
     $instagram     = sanitize_text_field( $_POST['instagram']    ?? '' );
     $handle        = sanitize_text_field( $_POST['handle']        ?? '' );
+    $coaster_count = max( 0, (int) ( $_POST['coaster_count'] ?? 0 ) );
     $dir_name_pref = in_array( $_POST['dir_name_pref'] ?? 'real', [ 'real', 'handle' ] ) ? $_POST['dir_name_pref'] : 'real';
     $hide_from_dir = ! empty( $_POST['hide_from_dir'] ) ? 1 : 0;
 
@@ -361,11 +384,12 @@ function blusiast_update_profile() {
         'home_park'     => $home_park,
         'fave_coaster'  => $fave_coaster,
         'instagram'     => sanitize_text_field( ltrim( $instagram, '@' ) ),
+        'coaster_count' => $coaster_count,
         'handle'        => ltrim( $handle, '@' ),
         'dir_name_pref' => $dir_name_pref,
         'hide_from_dir' => $hide_from_dir,
     ], [ 'id' => $member->id ],
-    [ '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%d' ],
+    [ '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%d', '%s', '%s', '%d' ],
     [ '%d' ] );
 
     wp_send_json_success( [ 'message' => 'Profile updated!' ] );
@@ -494,15 +518,19 @@ function blusiast_submit_photo() {
 
     $caption = sanitize_textarea_field( $_POST['caption'] ?? '' );
 
+    $event_id = absint( $_POST['event_id'] ?? 0 );
+    if ( $event_id && get_post_type( $event_id ) !== 'bl_event' ) $event_id = 0;
+
     global $wpdb;
     $wpdb->insert( $wpdb->prefix . 'bl_photo_submissions', [
         'member_id'     => $member->id,
         'wp_user_id'    => get_current_user_id(),
         'attachment_id' => $attachment_id,
+        'event_id'      => $event_id,
         'caption'       => $caption,
         'status'        => 'pending',
-        'submitted_at'  => current_time( 'mysql' ),
-    ], [ '%d', '%d', '%d', '%s', '%s', '%s' ] );
+        'submitted_at'  => blusiast_eastern_now(),
+    ], [ '%d', '%d', '%d', '%d', '%s', '%s', '%s' ] );
 
     // Notify admin
     wp_mail(
@@ -554,7 +582,7 @@ function blusiast_send_help() {
         'subject'      => $subject,
         'message'      => $message,
         'status'       => 'open',
-        'submitted_at' => current_time( 'mysql' ),
+        'submitted_at' => blusiast_eastern_now(),
     ], [ '%d', '%d', '%s', '%s', '%s', '%s' ] );
 
     // Email admin
@@ -643,8 +671,11 @@ Great shot! Your photo has been approved and added to your profile gallery.
 
 
 // ─────────────────────────────────────────
-// 10. ADMIN — Help Messages CMS page
+// 10. ADMIN — Help Messages CRM page
 // ─────────────────────────────────────────
+
+// Photos and Help pages are handled by the main blusiast_admin_enqueue() in member-cms.php
+// which matches any hook containing 'blusiast' — no separate hook needed here.
 
 add_action( 'admin_menu', 'blusiast_photo_menu', 19 );
 
@@ -668,33 +699,42 @@ function blusiast_photo_submissions_page() {
          ORDER BY p.submitted_at DESC"
     );
     ?>
-    <div class="bl-cms-wrap">
+    <div class="bl-crm-wrap">
         <?php blusiast_admin_header( 'Photo Submissions' ); ?>
         <?php blusiast_admin_tabs( 'blusiast-photos' ); ?>
         <div class="bl-table-wrap">
             <div class="bl-table-toolbar"><h2>Submissions (<?php echo count($photos); ?>)</h2></div>
             <?php if ( $photos ) : ?>
             <table class="bl-table">
-                <thead><tr><th>Photo</th><th>Member</th><th>Caption</th><th>Status</th><th>Date</th><th></th></tr></thead>
+                <thead><tr><th>Photo</th><th>Member</th><th>Event</th><th>Caption</th><th>Status</th><th>Date</th><th></th></tr></thead>
                 <tbody>
                 <?php foreach ( $photos as $p ) :
                     $img_url = $p->attachment_id ? wp_get_attachment_image_url( $p->attachment_id, 'thumbnail' ) : '';
                     $use_h   = ! empty( $p->handle ) && ( $p->dir_name_pref ?? 'real' ) === 'handle';
                     $name    = $use_h ? $p->handle : $p->first_name . ' ' . $p->last_name;
+                    $evt_id    = isset( $p->event_id ) ? (int) $p->event_id : 0;
+                    $evt_title = $evt_id ? get_the_title( $evt_id ) : '';
                 ?>
                 <tr>
-                    <td><?php if ($img_url) : ?><img src="<?php echo esc_url($img_url); ?>" style="width:60px;height:60px;object-fit:cover;border-radius:4px;" alt=""><?php else : ?>—<?php endif; ?></td>
+                    <td style="width:72px;"><div style="width:64px;height:64px;border-radius:6px;overflow:hidden;background:var(--bl-s3);border:1px solid var(--bl-s4);"><?php if ($img_url) : ?><img src="<?php echo esc_url($img_url); ?>" style="width:100%;height:100%;object-fit:cover;display:block;" alt=""><?php else : ?><div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--bl-g1);font-size:20px;">📷</div><?php endif; ?></div></td>
                     <td class="bl-td-name"><?php echo esc_html( $name ); ?></td>
+                    <td style="font-size:12px;max-width:170px;">
+                        <?php if ( $evt_title ) : ?>
+                            <a href="<?php echo esc_url( get_edit_post_link( $evt_id ) ); ?>"><?php echo esc_html( $evt_title ); ?></a>
+                        <?php else : ?>
+                            <span style="color:var(--bl-g1);">General</span>
+                        <?php endif; ?>
+                    </td>
                     <td style="font-size:13px;max-width:200px;"><?php echo esc_html( $p->caption ?: '—' ); ?></td>
                     <td><span class="bl-status bl-status--<?php echo $p->status === 'pending' ? 'pending' : ($p->status === 'approved' ? 'confirmed' : 'cancelled'); ?>"><?php echo esc_html(ucfirst($p->status)); ?></span></td>
                     <td style="font-size:11px;white-space:nowrap;"><?php echo esc_html(date('M j, Y', strtotime($p->submitted_at))); ?></td>
-                    <td style="display:flex;gap:6px;">
+                    <td><div style="display:flex;gap:6px;flex-wrap:wrap;">
                         <?php if ($p->status === 'pending') : ?>
                         <button class="bl-btn-sm bl-photo-action" data-id="<?php echo (int)$p->id; ?>" data-action="approved" style="background:rgba(92,184,92,.15);border-color:rgba(92,184,92,.3);color:#5cb85c;">✓ Approve</button>
                         <button class="bl-btn-sm bl-photo-action" data-id="<?php echo (int)$p->id; ?>" data-action="rejected" style="background:rgba(204,0,0,.15);border-color:rgba(204,0,0,.3);color:#ff6666;">✕ Reject</button>
                         <?php endif; ?>
                         <?php if ($img_url) : ?><a href="<?php echo esc_url(wp_get_attachment_url($p->attachment_id)); ?>" class="bl-btn-sm" target="_blank">View Full</a><?php endif; ?>
-                    </td>
+                    </div></td>
                 </tr>
                 <?php endforeach; ?>
                 </tbody>
@@ -740,62 +780,299 @@ add_action( 'wp_ajax_blusiast_close_help', function() {
     wp_send_json_success();
 } );
 
+add_action( 'wp_ajax_blusiast_reply_help', function() {
+    if ( ! current_user_can( 'manage_options' ) ) wp_die( -1 );
+    check_ajax_referer( 'blusiast_admin_nonce', 'nonce' );
+
+    $id      = absint( $_POST['id'] ?? 0 );
+    $reply   = sanitize_textarea_field( $_POST['reply'] ?? '' );
+    $to      = sanitize_email( $_POST['email'] ?? '' );
+    $subject = sanitize_text_field( $_POST['subject'] ?? '' );
+    $name    = sanitize_text_field( $_POST['name'] ?? '' );
+
+    if ( ! $id || ! $reply || ! is_email( $to ) ) {
+        wp_send_json_error( [ 'message' => 'Missing required fields.' ] );
+    }
+
+    $sent = wp_mail(
+        $to,
+        'Re: ' . $subject . ' — Blusiast',
+        "Hey {$name},\n\n{$reply}\n\n— The Blusiast Team",
+        [
+            'From: Blusiast <' . get_option( 'admin_email' ) . '>',
+            'Content-Type: text/plain; charset=UTF-8',
+        ]
+    );
+
+    if ( ! $sent ) {
+        wp_send_json_error( [ 'message' => 'Email could not be sent. Check your mail settings.' ] );
+    }
+
+    // Auto-close the ticket after replying
+    global $wpdb;
+    $wpdb->update( $wpdb->prefix . 'bl_help_messages', [ 'status' => 'closed' ], [ 'id' => $id ], [ '%s' ], [ '%d' ] );
+
+    wp_send_json_success( [ 'message' => 'Reply sent and ticket closed.' ] );
+} );
+
 function blusiast_help_page() {
     global $wpdb;
-    $htable  = $wpdb->prefix . 'bl_help_messages';
-    $messages = $wpdb->get_results( "SELECT * FROM $htable ORDER BY submitted_at DESC" );
+    $htable   = $wpdb->prefix . 'bl_help_messages';
+    $mtable   = $wpdb->prefix . 'bl_members';
+    $messages = $wpdb->get_results(
+        "SELECT h.*, m.first_name, m.last_name, m.email AS member_email
+         FROM $htable h
+         LEFT JOIN $mtable m ON m.id = h.member_id
+         ORDER BY h.submitted_at DESC"
+    );
+    $nonce = wp_create_nonce( 'blusiast_admin_nonce' );
     ?>
-    <div class="bl-cms-wrap">
+    <div class="bl-crm-wrap">
         <?php blusiast_admin_header( 'Help Messages' ); ?>
         <?php blusiast_admin_tabs( 'blusiast-help' ); ?>
         <div class="bl-table-wrap">
             <div class="bl-table-toolbar"><h2>Help Messages (<?php echo count( $messages ); ?>)</h2></div>
             <?php if ( $messages ) : ?>
-            <table class="bl-table">
-                <thead><tr><th>#</th><th>From</th><th>Subject</th><th>Message</th><th>Status</th><th>Date</th><th></th></tr></thead>
-                <tbody>
-                <?php foreach ( $messages as $msg ) : ?>
-                <tr>
-                    <td style="color:var(--bl-g1);font-size:11px;"><?php echo (int) $msg->id; ?></td>
-                    <td class="bl-td-name">
-                        <?php if ( $msg->wp_user_id ) :
-                            $u = get_userdata( $msg->wp_user_id );
-                            echo $u ? esc_html( $u->display_name ) : '—';
-                        else : echo '—'; endif; ?>
-                    </td>
-                    <td style="font-weight:600;color:var(--bl-white);"><?php echo esc_html( $msg->subject ); ?></td>
-                    <td style="max-width:300px;font-size:13px;"><?php echo esc_html( wp_trim_words( $msg->message, 20 ) ); ?></td>
-                    <td>
-                        <span class="bl-status <?php echo $msg->status === 'open' ? 'bl-status--pending' : 'bl-status--confirmed'; ?>">
-                            <?php echo esc_html( ucfirst( $msg->status ) ); ?>
-                        </span>
-                    </td>
-                    <td style="font-size:11px;white-space:nowrap;"><?php echo esc_html( date( 'M j, Y g:ia', strtotime( $msg->submitted_at ) ) ); ?></td>
-                    <td>
-                        <?php if ( $msg->status === 'open' ) : ?>
+
+            <style>
+                /* ── Help message list ── */
+                .bl-help-list { display:flex;flex-direction:column;gap:0; }
+                .bl-help-row { display:grid;grid-template-columns:36px 1fr 1fr minmax(80px,120px) 130px 200px;align-items:center;gap:12px;padding:14px 20px;border-bottom:1px solid var(--bl-s3,#222);cursor:pointer;transition:background .15s; }
+                .bl-help-row:hover { background:rgba(255,255,255,.04); }
+                .bl-help-row.is-open-ticket { border-left:3px solid var(--bl-red,#e63946); }
+                .bl-help-num { font-size:11px;color:var(--bl-g1,#888); }
+                .bl-help-from { font-size:13px;font-weight:600;color:var(--bl-white,#fff); }
+                .bl-help-email-small { font-size:11px;color:var(--bl-g1,#888);margin-top:2px; }
+                .bl-help-subject { font-size:13px;color:var(--bl-g2,#aaa); }
+                .bl-help-preview { font-size:12px;color:var(--bl-g1,#888);white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
+                .bl-help-date { font-size:11px;color:var(--bl-g1,#888);white-space:nowrap; }
+                .bl-help-actions { display:flex;gap:6px;justify-content:flex-end; }
+
+                /* ── Modal ── */
+                #bl-help-modal-overlay { display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:100000;align-items:center;justify-content:center; }
+                #bl-help-modal-overlay.open { display:flex; }
+                #bl-help-modal { background:var(--bl-s1,#141414);border:1px solid var(--bl-s3,#2a2a2a);border-radius:12px;width:660px;max-width:96vw;max-height:90vh;overflow-y:auto;padding:32px;position:relative; }
+                .bl-modal-close { position:absolute;top:16px;right:16px;background:none;border:none;color:var(--bl-g1,#888);font-size:20px;cursor:pointer;line-height:1;padding:4px 8px; }
+                .bl-modal-close:hover { color:var(--bl-white,#fff); }
+                .bl-modal-label { font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--bl-g1,#888);margin-bottom:4px; }
+                .bl-modal-value { font-size:14px;color:var(--bl-white,#fff);margin-bottom:16px;line-height:1.6; }
+                .bl-modal-message-box { background:var(--bl-s2,#1a1a1a);border:1px solid var(--bl-s3,#2a2a2a);border-radius:8px;padding:16px;font-size:14px;color:var(--bl-g2,#bbb);line-height:1.75;white-space:pre-wrap;margin-bottom:24px; }
+                .bl-modal-divider { border:none;border-top:1px solid var(--bl-s3,#2a2a2a);margin:20px 0; }
+                .bl-modal-reply-label { font-family:var(--bl-fd,sans-serif);font-size:14px;font-weight:700;text-transform:uppercase;color:var(--bl-white,#fff);margin-bottom:12px; }
+                .bl-modal-textarea { width:100%;background:var(--bl-s2,#1a1a1a);border:1px solid var(--bl-s3,#2a2a2a);border-radius:8px;color:var(--bl-white,#fff);font-size:14px;font-family:inherit;padding:12px;resize:vertical;min-height:120px;box-sizing:border-box; }
+                .bl-modal-textarea:focus { outline:none;border-color:var(--bl-red,#e63946); }
+                .bl-modal-footer { display:flex;gap:10px;align-items:center;margin-top:14px;flex-wrap:wrap; }
+                .bl-modal-msg { font-size:13px;padding:8px 12px;border-radius:6px;display:none; }
+                .bl-modal-msg.success { background:rgba(92,184,92,.1);border:1px solid rgba(92,184,92,.3);color:#5cb85c; }
+                .bl-modal-msg.error   { background:rgba(204,0,0,.1);border:1px solid rgba(204,0,0,.3);color:#ff6666; }
+            </style>
+
+            <div class="bl-help-list">
+                <div class="bl-help-row" style="cursor:default;background:rgba(255,255,255,.02);border-bottom:2px solid var(--bl-s3,#222);padding:10px 20px;">
+                    <span style="font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--bl-g1,#888);">#</span>
+                    <span style="font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--bl-g1,#888);">From</span>
+                    <span style="font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--bl-g1,#888);">Subject</span>
+                    <span style="font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--bl-g1,#888);">Status</span>
+                    <span style="font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--bl-g1,#888);">Date</span>
+                    <span></span>
+                </div>
+
+                <?php foreach ( $messages as $msg ) :
+                    $u         = $msg->wp_user_id ? get_userdata( $msg->wp_user_id ) : null;
+                    $name      = $msg->first_name ? trim( $msg->first_name . ' ' . $msg->last_name ) : ( $u ? $u->display_name : 'Unknown' );
+                    $email     = $msg->member_email ?: ( $u ? $u->user_email : '' );
+                    $is_open   = ( $msg->status === 'open' );
+                    $msg_json  = wp_json_encode( [
+                        'id'      => (int) $msg->id,
+                        'name'    => $name,
+                        'email'   => $email,
+                        'subject' => $msg->subject,
+                        'message' => $msg->message,
+                        'date'    => date( 'F j, Y \a\t g:ia', strtotime( $msg->submitted_at ) ),
+                        'status'  => $msg->status,
+                    ] );
+                ?>
+                <div class="bl-help-row <?php echo $is_open ? 'is-open-ticket' : ''; ?>"
+                     data-msg="<?php echo esc_attr( $msg_json ); ?>"
+                     id="bl-help-row-<?php echo (int) $msg->id; ?>">
+                    <span class="bl-help-num"><?php echo (int) $msg->id; ?></span>
+                    <div>
+                        <div class="bl-help-from"><?php echo esc_html( $name ); ?></div>
+                        <?php if ( $email ) : ?><div class="bl-help-email-small"><?php echo esc_html( $email ); ?></div><?php endif; ?>
+                    </div>
+                    <div>
+                        <div class="bl-help-subject"><?php echo esc_html( $msg->subject ); ?></div>
+                        <div class="bl-help-preview"><?php echo esc_html( wp_trim_words( $msg->message, 12 ) ); ?></div>
+                    </div>
+                    <span class="bl-status <?php echo $is_open ? 'bl-status--pending' : 'bl-status--confirmed'; ?>">
+                        <?php echo $is_open ? 'Open' : 'Closed'; ?>
+                    </span>
+                    <span class="bl-help-date"><?php echo esc_html( date( 'M j, Y g:ia', strtotime( $msg->submitted_at ) ) ); ?></span>
+                    <div class="bl-help-actions">
+                        <button class="bl-btn-sm bl-read-reply"
+                                style="background:var(--bl-red,#e63946);border-color:var(--bl-red,#e63946);color:#fff;">
+                            Read &amp; Reply ↗
+                        </button>
+                        <?php if ( $is_open ) : ?>
                         <button class="bl-btn-sm bl-close-help" data-id="<?php echo (int) $msg->id; ?>">Mark Closed</button>
                         <?php endif; ?>
-                        <?php if ( $msg->wp_user_id ) :
-                            $u = get_userdata( $msg->wp_user_id );
-                            if ( $u ) : ?>
-                            <a href="mailto:<?php echo esc_attr( $u->user_email ); ?>" class="bl-btn-sm" style="margin-left:4px;">Reply ↗</a>
-                        <?php endif; endif; ?>
-                    </td>
-                </tr>
+                    </div>
+                </div>
                 <?php endforeach; ?>
-                </tbody>
-            </table>
+            </div>
+
             <?php else : ?>
                 <div class="bl-empty"><strong>No Messages Yet</strong>Help requests from members will appear here.</div>
             <?php endif; ?>
         </div>
     </div>
+
+    <!-- ── FULL MESSAGE + REPLY MODAL ── -->
+    <div id="bl-help-modal-overlay">
+        <div id="bl-help-modal" role="dialog" aria-modal="true">
+            <button class="bl-modal-close" onclick="blHelpClose()" title="Close">✕</button>
+
+            <div style="font-family:var(--bl-fd,sans-serif);font-size:22px;font-weight:800;text-transform:uppercase;color:var(--bl-white,#fff);margin-bottom:20px;" id="bl-modal-subject"></div>
+
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px;">
+                <div>
+                    <div class="bl-modal-label">From</div>
+                    <div class="bl-modal-value" id="bl-modal-from"></div>
+                </div>
+                <div>
+                    <div class="bl-modal-label">Date</div>
+                    <div class="bl-modal-value" id="bl-modal-date"></div>
+                </div>
+            </div>
+
+            <div class="bl-modal-label">Message</div>
+            <div class="bl-modal-message-box" id="bl-modal-message"></div>
+
+            <hr class="bl-modal-divider">
+
+            <div class="bl-modal-reply-label">Reply to Member</div>
+            <textarea class="bl-modal-textarea" id="bl-modal-reply" placeholder="Type your reply here…" rows="5"></textarea>
+            <div class="bl-modal-footer">
+                <button class="bl-btn-sm" id="bl-modal-send-btn"
+                        style="background:var(--bl-red,#e63946);border-color:var(--bl-red,#e63946);color:#fff;padding:8px 18px;font-size:13px;">
+                    Send Reply &amp; Close Ticket
+                </button>
+                <div class="bl-modal-msg" id="bl-modal-status"></div>
+            </div>
+        </div>
+    </div>
+
     <script>
+    var blHelpNonce = '<?php echo $nonce; ?>';
+    var blHelpAjax  = '<?php echo admin_url( 'admin-ajax.php' ); ?>';
+    var blHelpCurrent = null;
+
+    document.addEventListener('click', function(e) {
+        var btn = e.target.closest('.bl-read-reply');
+        if (!btn) return;
+        e.stopPropagation();
+        var row = btn.closest('.bl-help-row');
+        var data = JSON.parse(row.dataset.msg);
+        blHelpOpen(data);
+    });
+
+    function blHelpOpen(data) {
+        blHelpCurrent = data;
+        document.getElementById('bl-modal-subject').textContent = data.subject;
+        document.getElementById('bl-modal-from').textContent    = data.name + (data.email ? ' <' + data.email + '>' : '');
+        document.getElementById('bl-modal-date').textContent    = data.date;
+        document.getElementById('bl-modal-message').textContent = data.message;
+        document.getElementById('bl-modal-reply').value         = '';
+        var statusEl = document.getElementById('bl-modal-status');
+        statusEl.style.display = 'none';
+        statusEl.className = 'bl-modal-msg';
+        var sendBtn = document.getElementById('bl-modal-send-btn');
+        sendBtn.disabled = (data.status === 'closed');
+        sendBtn.textContent = data.status === 'closed' ? 'Ticket Closed' : 'Send Reply & Close Ticket';
+        document.getElementById('bl-help-modal-overlay').classList.add('open');
+    }
+
+    function blHelpClose() {
+        document.getElementById('bl-help-modal-overlay').classList.remove('open');
+        blHelpCurrent = null;
+    }
+
+    document.getElementById('bl-help-modal-overlay').addEventListener('click', function(e) {
+        if (e.target === this) blHelpClose();
+    });
+
+    document.getElementById('bl-modal-send-btn').addEventListener('click', function() {
+        var reply = document.getElementById('bl-modal-reply').value.trim();
+        var statusEl = document.getElementById('bl-modal-status');
+        if (!reply) {
+            statusEl.textContent = 'Please write a reply before sending.';
+            statusEl.className = 'bl-modal-msg error';
+            statusEl.style.display = 'inline-block';
+            return;
+        }
+        var btn = this;
+        btn.disabled = true;
+        btn.textContent = 'Sending…';
+        statusEl.style.display = 'none';
+
+        var data = new URLSearchParams({
+            action:  'blusiast_reply_help',
+            nonce:   blHelpNonce,
+            id:      blHelpCurrent.id,
+            reply:   reply,
+            email:   blHelpCurrent.email,
+            subject: blHelpCurrent.subject,
+            name:    blHelpCurrent.name,
+        });
+
+        fetch(blHelpAjax, { method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body: data.toString() })
+            .then(function(r){ return r.json(); })
+            .then(function(r) {
+                if (r.success) {
+                    statusEl.textContent = '✓ Reply sent! Ticket closed.';
+                    statusEl.className = 'bl-modal-msg success';
+                    statusEl.style.display = 'inline-block';
+                    btn.textContent = 'Ticket Closed';
+                    // Update row in the list
+                    var row = document.getElementById('bl-help-row-' + blHelpCurrent.id);
+                    if (row) {
+                        row.classList.remove('is-open-ticket');
+                        var badge = row.querySelector('.bl-status');
+                        if (badge) { badge.className='bl-status bl-status--confirmed'; badge.textContent='Closed'; }
+                        var closeBtn = row.querySelector('.bl-close-help');
+                        if (closeBtn) closeBtn.remove();
+                    }
+                } else {
+                    statusEl.textContent = (r.data && r.data.message) ? r.data.message : 'Error sending reply.';
+                    statusEl.className = 'bl-modal-msg error';
+                    statusEl.style.display = 'inline-block';
+                    btn.disabled = false;
+                    btn.textContent = 'Send Reply & Close Ticket';
+                }
+            })
+            .catch(function() {
+                statusEl.textContent = 'Network error. Please try again.';
+                statusEl.className = 'bl-modal-msg error';
+                statusEl.style.display = 'inline-block';
+                btn.disabled = false;
+                btn.textContent = 'Send Reply & Close Ticket';
+            });
+    });
+
     jQuery(function($){
-        $(document).on('click','.bl-close-help',function(){
+        $(document).on('click', '.bl-close-help', function(e){
+            e.stopPropagation();
             var btn=$(this), id=btn.data('id');
-            $.post(ajaxurl,{action:'blusiast_close_help',nonce:'<?php echo wp_create_nonce("blusiast_admin_nonce"); ?>',id:id},function(r){
-                if(r.success) btn.closest('tr').find('.bl-status').removeClass('bl-status--pending').addClass('bl-status--confirmed').text('Closed'), btn.remove();
+            $.post(blHelpAjax, {action:'blusiast_close_help', nonce:blHelpNonce, id:id}, function(r){
+                if(r.success) {
+                    var row = document.getElementById('bl-help-row-'+id);
+                    if (row) {
+                        row.classList.remove('is-open-ticket');
+                        var badge = row.querySelector('.bl-status');
+                        if (badge) { badge.className='bl-status bl-status--confirmed'; badge.textContent='Closed'; }
+                    }
+                    btn.remove();
+                }
             });
         });
     });
@@ -820,6 +1097,7 @@ function blusiast_portal_css() { return '
 
 /* ── SIDEBAR ── */
 .portal-sidebar { background: var(--surface-1); border: 1px solid var(--surface-3); border-radius: var(--radius-lg); overflow: hidden; position: sticky; top: 100px; }
+@media (max-width: 768px) { .portal-sidebar { position: static; top: auto; } }
 .portal-sidebar__member { padding: 24px 20px; border-bottom: 1px solid var(--surface-3); display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center; }
 .portal-avatar { width: 72px; height: 72px; border-radius: 50%; background: var(--red); color: var(--white); font-family: var(--font-display); font-size: 28px; font-weight: 800; display: flex; align-items: center; justify-content: center; overflow: hidden; border: 3px solid var(--surface-3); flex-shrink: 0; }
 .portal-avatar img { width: 100%; height: 100%; object-fit: cover; }
@@ -985,7 +1263,20 @@ function ajaxForm(formId, action, onSuccess){
         data.append('action', action);
         data.append('nonce',  nonce);
 
-        fetch(ajax, { method:'POST', body:data })
+        // reCAPTCHA v3 — get token if available, then send
+        var rcaptchaActions = ['blusiast_portal_login','blusiast_portal_register','blusiast_send_help'];
+        var rcAction = action.replace('blusiast_portal_','').replace('blusiast_','');
+        if(rcaptchaActions.indexOf(action) !== -1 && window.blusiast_get_recaptcha_token){
+            window.blusiast_get_recaptcha_token(rcAction).then(function(token){
+                data.append('recaptcha_token', token);
+                doFetch(data);
+            });
+            return; // doFetch will fire after token arrives
+        }
+        doFetch(data);
+
+        function doFetch(postData){
+        fetch(ajax, { method:'POST', body:postData })
             .then(function(r){ return r.json(); })
             .then(function(json){
                 if(btn){ btn.disabled=false; btn.textContent=origText; }
@@ -1000,17 +1291,22 @@ function ajaxForm(formId, action, onSuccess){
                 if(btn){ btn.disabled=false; btn.textContent=origText; }
                 if(msgEl){ msgEl.className='portal-msg portal-msg--error'; msgEl.textContent='Network error. Please try again.'; msgEl.style.display='block'; }
             });
+        } // end doFetch
     });
 }
 
 // Login form
 ajaxForm('portal-login-form', 'blusiast_portal_login', function(data){
-    if(data.redirect) window.location.href = data.redirect;
+    document.dispatchEvent(new CustomEvent('blusiast:logged_in'));
+    var dest = window.blEventRedirect || (bluPortal && bluPortal.loginRedirect) || data.redirect;
+    if(dest) window.location.href = dest;
 });
 
 // Register form
 ajaxForm('portal-register-form', 'blusiast_portal_register', function(data){
-    if(data.redirect) window.location.href = data.redirect;
+    document.dispatchEvent(new CustomEvent('blusiast:registered'));
+    var dest = window.blEventRedirect || (bluPortal && bluPortal.registerRedirect) || data.redirect;
+    if(dest) window.location.href = dest;
 });
 
 // Profile form
@@ -1154,9 +1450,135 @@ if(avatarInput){
     });
 }
 
+// ── Park typeahead ──
+(function(){
+    var ptSearch  = document.getElementById('park_search_input');
+    if (!ptSearch) return;
+
+    var ptHidden  = document.getElementById('park_name_value');
+    var ptDrop    = document.getElementById('park_dropdown');
+    var ptClear   = document.getElementById('park_search_clear');
+    var ptPanel   = document.getElementById('park_add_panel');
+    var ptAddName = document.getElementById('park_add_name');
+    var ptAddLoc  = document.getElementById('park_add_location');
+    var ptAddBtn  = document.getElementById('park_add_submit');
+    var ptCancel  = document.getElementById('park_add_cancel');
+    var ptMsg     = document.getElementById('park_add_msg');
+    var ptBadge   = document.getElementById('park_selected_badge');
+    var ptLabel   = document.getElementById('park_selected_label');
+    var ptChange  = document.getElementById('park_selected_change');
+
+    var ptTimer   = null;
+    var ptRest    = (window.bluPortal && bluPortal.restUrl) ? bluPortal.restUrl : '/wp-json/blusiast/v1/parks';
+    var ptNonce   = (window.bluPortal && bluPortal.restNonce) ? bluPortal.restNonce : '';
+
+    function ptEsc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+    function ptShowBadge(name) {
+        ptHidden.value   = name;
+        ptLabel.textContent = name;
+        ptBadge.style.display = 'flex';
+        ptSearch.style.display  = 'none';
+        ptClear.style.display   = 'none';
+        ptDrop.style.display    = 'none';
+        ptPanel.style.display   = 'none';
+    }
+
+    function ptReset() {
+        ptHidden.value = '';
+        ptSearch.value = '';
+        ptBadge.style.display  = 'none';
+        ptSearch.style.display = '';
+        ptClear.style.display  = 'none';
+        ptDrop.style.display   = 'none';
+        ptPanel.style.display  = 'none';
+        if (ptMsg) ptMsg.textContent = '';
+        ptSearch.focus();
+    }
+
+    function ptRender(parks, q) {
+        ptDrop.innerHTML = '';
+        parks.forEach(function(p){
+            var el = document.createElement('div');
+            el.style.cssText = 'padding:10px 14px;cursor:pointer;color:var(--white);font-size:14px;border-bottom:1px solid var(--surface-3,#333);';
+            el.innerHTML = '<strong>' + ptEsc(p.name) + '</strong>' + (p.location ? ' <span style="font-size:12px;color:var(--gray-1);">' + ptEsc(p.location) + '</span>' : '');
+            el.addEventListener('mouseenter', function(){ this.style.background='var(--surface-3,#222)'; });
+            el.addEventListener('mouseleave', function(){ this.style.background=''; });
+            el.addEventListener('mousedown',  function(e){ e.preventDefault(); ptShowBadge(p.name); });
+            ptDrop.appendChild(el);
+        });
+        if (q) {
+            var add = document.createElement('div');
+            add.style.cssText = 'padding:10px 14px;cursor:pointer;color:var(--red,#CC0000);font-size:13px;font-weight:700;';
+            add.innerHTML = '+ Add <em>' + ptEsc(q) + '</em> as a new park';
+            add.addEventListener('mouseenter', function(){ this.style.background='var(--surface-3,#222)'; });
+            add.addEventListener('mouseleave', function(){ this.style.background=''; });
+            add.addEventListener('mousedown',  function(e){
+                e.preventDefault();
+                ptDrop.style.display = 'none';
+                ptAddName.value = q;
+                ptPanel.style.display = 'block';
+                ptAddName.focus();
+            });
+            ptDrop.appendChild(add);
+        }
+        ptDrop.style.display = (parks.length || q) ? 'block' : 'none';
+    }
+
+    function ptFetch(q) {
+        fetch(ptRest + (q ? '?q=' + encodeURIComponent(q) : ''), { headers: ptNonce ? {'X-WP-Nonce': ptNonce} : {} })
+            .then(function(r){ return r.json(); })
+            .then(function(parks){ ptRender(parks, q); })
+            .catch(function(){});
+    }
+
+    ptSearch.addEventListener('input', function(){
+        var q = this.value.trim();
+        ptClear.style.display  = q ? 'inline' : 'none';
+        ptPanel.style.display  = 'none';
+        clearTimeout(ptTimer);
+        ptTimer = setTimeout(function(){ ptFetch(q); }, 220);
+    });
+    ptSearch.addEventListener('focus', function(){ if (!ptHidden.value) ptFetch(this.value.trim()); });
+    ptSearch.addEventListener('blur',  function(){ setTimeout(function(){ ptDrop.style.display='none'; }, 180); });
+    ptClear.addEventListener('click',  function(){ ptReset(); });
+    if (ptChange) ptChange.addEventListener('click', function(){ ptReset(); });
+
+    if (ptAddBtn) {
+        ptAddBtn.addEventListener('click', function(){
+            var name = ptAddName.value.trim();
+            var loc  = ptAddLoc.value.trim();
+            if (!name) { ptMsg.textContent = 'Park name is required.'; return; }
+            ptAddBtn.disabled = true;
+            ptMsg.textContent = 'Saving…';
+            fetch(ptRest, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-WP-Nonce': ptNonce },
+                body: JSON.stringify({ name: name, location: loc })
+            })
+            .then(function(r){ return r.json(); })
+            .then(function(data){
+                ptAddBtn.disabled = false;
+                if (data.error) { ptMsg.textContent = data.error; return; }
+                ptShowBadge(data.name);
+                ptMsg.textContent = '';
+            })
+            .catch(function(){ ptAddBtn.disabled = false; ptMsg.textContent = 'Network error — try again.'; });
+        });
+    }
+    if (ptCancel) ptCancel.addEventListener('click', function(){ ptPanel.style.display='none'; ptSearch.focus(); });
+})();
+
 // ── Review form ──
 ajaxForm('portal-review-form', 'blusiast_submit_review', function(){
     document.getElementById('portal-review-form').reset();
+    // Reset park widget too
+    var badge       = document.getElementById('park_selected_badge');
+    var searchInput = document.getElementById('park_search_input');
+    var hiddenInput = document.getElementById('park_name_value');
+    if (badge)       { badge.style.display = 'none'; }
+    if (searchInput) { searchInput.style.display = ''; searchInput.value = ''; }
+    if (hiddenInput) { hiddenInput.value = ''; }
 });
 
 // ── Review tabs ──

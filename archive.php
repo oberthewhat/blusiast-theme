@@ -43,7 +43,21 @@ $is_coaster = ( $post_type === 'bl_coaster' );
                         $date         = function_exists( 'get_field' ) ? get_field( 'event_date' )         : '';
                         $location     = function_exists( 'get_field' ) ? get_field( 'event_location' )     : '';
                         $time         = function_exists( 'get_field' ) ? get_field( 'event_time' )         : '';
-                        $price        = function_exists( 'get_field' ) ? get_field( 'event_price' )        : '';
+                        // Derive display price from actual pricing fields
+                        $ph_cents     = (int) get_post_meta( get_the_ID(), 'passholder_price_cents',    true );
+                        $nph_cents    = (int) get_post_meta( get_the_ID(), 'nonpassholder_price_cents', true );
+                        $legacy_cents = (int) get_post_meta( get_the_ID(), 'ticket_price_cents',        true );
+                        $lowest_cents = 0;
+                        $candidates   = array_filter( [ $ph_cents, $nph_cents, $legacy_cents ] );
+                        if ( $candidates ) $lowest_cents = min( $candidates );
+                        if ( $lowest_cents > 0 ) {
+                            $dollars = $lowest_cents / 100;
+                            $price   = ( $ph_cents && $nph_cents && $ph_cents !== $nph_cents )
+                                ? 'From $' . number_format( $dollars, 2 )
+                                : '$' . number_format( $dollars, 2 );
+                        } else {
+                            $price = 'Free';
+                        }
                         $reg_url      = function_exists( 'get_field' ) ? get_field( 'event_reg_url' )      : get_permalink();
                         $members_only = function_exists( 'get_field' ) ? get_field( 'event_members_only' ) : false;
                         $sold_out     = function_exists( 'get_field' ) ? get_field( 'event_sold_out' )     : false;
@@ -121,7 +135,7 @@ $is_coaster = ( $post_type === 'bl_coaster' );
                                     <?php endif; ?>
                                     <?php if ( $price ) : ?>
                                         <span class="event-card__meta-sep" aria-hidden="true"></span>
-                                        <span class="event-card__meta-item event-card__meta-item--price">
+                                        <span class="event-card__meta-item event-card__meta-item--price<?php echo $price === 'Free' ? ' event-card__meta-item--free' : ''; ?>">
                                             <?php echo esc_html( $price ); ?>
                                         </span>
                                     <?php endif; ?>
@@ -156,6 +170,8 @@ $is_coaster = ( $post_type === 'bl_coaster' );
 
                     <?php endwhile; ?>
                 </div>
+
+                <?php get_template_part( 'template-parts/sections/past-events' ); ?>
 
             <?php else : ?>
 
@@ -199,8 +215,16 @@ $is_coaster = ( $post_type === 'bl_coaster' );
                 </nav>
             <?php endif; ?>
 
+        <?php elseif ( $is_events ) : ?>
+
+            <div class="events-empty">
+                <p class="bl-body-lg"><?php esc_html_e( 'No upcoming events right now — check back soon.', 'blusiast' ); ?></p>
+            </div>
+
+            <?php get_template_part( 'template-parts/sections/past-events' ); ?>
+
         <?php else : ?>
-            <p class="bl-body-md"><?php esc_html_e( 'No events found.', 'blusiast' ); ?></p>
+            <p class="bl-body-md"><?php esc_html_e( 'No posts found.', 'blusiast' ); ?></p>
         <?php endif; ?>
     </div>
 </div>

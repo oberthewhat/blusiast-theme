@@ -27,6 +27,8 @@ $stat_3_label = function_exists('get_field') ? get_field('hp_stat_3_label') : 'M
 
 <?php get_template_part( 'template-parts/sections/mission' ); ?>
 
+<?php get_template_part( 'template-parts/sections/next-event' ); ?>
+
 <?php get_template_part( 'template-parts/sections/events-preview' ); ?>
 
 <?php get_template_part( 'template-parts/sections/photo-strip' ); ?>
@@ -36,8 +38,6 @@ $stat_3_label = function_exists('get_field') ? get_field('hp_stat_3_label') : 'M
 <!-- <?php get_template_part( 'template-parts/sections/merch-preview' ); ?> -->
 
 <?php echo do_shortcode('[bl_review_carousel]'); ?>
-
-<?php get_template_part( 'template-parts/sections/email-signup' ); ?>
 
 <?php
 get_footer();

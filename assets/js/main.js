@@ -67,6 +67,16 @@
     }, { threshold: 0.1, rootMargin: '0px 0px -40px 0px' });
 
     animEls.forEach(function (el) { obs.observe(el); });
+
+    // Issue 14 — Brave shields can throttle IntersectionObserver callbacks,
+    // leaving elements permanently invisible. Safety net: show everything
+    // after 3s regardless of whether the observer fired.
+    setTimeout(function () {
+      document.querySelectorAll('.bl-animate:not(.visible)').forEach(function (el) {
+        el.classList.add('visible');
+      });
+    }, 3000);
+
   } else {
     // No IntersectionObserver support — just show everything
     animEls.forEach(function (el) { el.classList.add('visible'); });

@@ -141,7 +141,7 @@ $active_tab   = sanitize_key( $_GET['tab'] ?? ( $is_logged_in ? 'dashboard' : 'l
 
         // Member directory (non-hidden)
         $dir_members = $wpdb->get_results(
-            "SELECT first_name, last_name, handle, dir_name_pref, home_park, fave_coaster, avatar_url, instagram
+            "SELECT first_name, last_name, handle, dir_name_pref, home_park, fave_coaster, avatar_url, instagram, coaster_count
              FROM $mtable
              WHERE hide_from_dir = 0 AND account_status != 'banned'
              ORDER BY first_name ASC"
@@ -228,6 +228,17 @@ $active_tab   = sanitize_key( $_GET['tab'] ?? ( $is_logged_in ? 'dashboard' : 'l
 
                 <!-- DASHBOARD -->
                 <div id="panel-dashboard" class="portal-panel <?php echo $active_tab === 'dashboard' ? 'active' : ''; ?>">
+
+                    <!-- ══ MEMBER ID CARD — always first thing on the dashboard ══ -->
+                    <?php if ( $member && blusiast_can_see_member_id( $member ) ) : ?>
+                        <div style="margin-bottom: 8px;">
+                            <p style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.14em;color:var(--red);margin:0 0 6px;">Your Member ID</p>
+                        </div>
+                        <div style="margin-bottom: 28px;">
+                            <?php echo blusiast_member_id_card_html( $member ); ?>
+                        </div>
+                    <?php endif; ?>
+
                     <div class="portal-stats">
                         <div class="portal-stat">
                             <div class="portal-stat__num"><?php echo count( $registrations ); ?></div>
@@ -270,6 +281,14 @@ $active_tab   = sanitize_key( $_GET['tab'] ?? ( $is_logged_in ? 'dashboard' : 'l
                     <div class="portal-card">
                         <div class="portal-card__title"><span class="portal-card__title-dot"></span> Quick Links</div>
                         <div style="display:flex;flex-wrap:wrap;gap:10px;">
+                            <?php
+                            $profile_page = get_page_by_path('member-profile');
+                            $profile_base = $profile_page ? get_permalink($profile_page->ID) : home_url('/member-profile/');
+                            $my_profile_url = $member && $member->wp_user_id ? add_query_arg('uid', $member->wp_user_id, $profile_base) : '';
+                            ?>
+                            <?php if ( $my_profile_url ) : ?>
+                            <a href="<?php echo esc_url( $my_profile_url ); ?>" class="bl-btn bl-btn--primary bl-btn--sm">View My Profile <?php blusiast_icon('arrow-right'); ?></a>
+                            <?php endif; ?>
                             <a href="<?php echo esc_url( get_post_type_archive_link('bl_event') ); ?>" class="bl-btn bl-btn--ghost bl-btn--sm">Browse Events <?php blusiast_icon('arrow-right'); ?></a>
                             <a href="?tab=photos" class="bl-btn bl-btn--ghost bl-btn--sm" data-panel="photos">Submit a Photo</a>
                             <a href="?tab=help" class="bl-btn bl-btn--ghost bl-btn--sm" data-panel="help">Contact Us</a>
@@ -347,7 +366,7 @@ $active_tab   = sanitize_key( $_GET['tab'] ?? ( $is_logged_in ? 'dashboard' : 'l
                         <?php
                         // Re-fetch with wp_user_id for profile links
                         $dir_members_full = $wpdb->get_results(
-                            "SELECT first_name, last_name, handle, dir_name_pref, home_park, fave_coaster, avatar_url, instagram, wp_user_id
+                            "SELECT first_name, last_name, handle, dir_name_pref, home_park, fave_coaster, avatar_url, instagram, coaster_count, wp_user_id
                              FROM $mtable WHERE hide_from_dir = 0 AND account_status != 'banned' ORDER BY first_name ASC"
                         );
                         $profile_page = get_page_by_path('member-profile');
@@ -375,7 +394,8 @@ $active_tab   = sanitize_key( $_GET['tab'] ?? ( $is_logged_in ? 'dashboard' : 'l
                                     <div style="font-family:var(--font-display);font-size:16px;font-weight:700;text-transform:uppercase;color:var(--white);"><?php echo esc_html($dir_display); ?></div>
                                     <div style="font-size:12px;color:var(--gray-1);display:flex;gap:12px;flex-wrap:wrap;margin-top:2px;">
                                         <?php if ($dm->home_park) : ?><span>🏠 <?php echo esc_html($dm->home_park); ?></span><?php endif; ?>
-                                        <?php if ($dm->fave_coaster) : ?><span>🎢 <?php echo esc_html($dm->fave_coaster); ?></span><?php endif; ?>
+                                        <?php if ($dm->fave_coaster) : ?><span>🥇 <?php echo esc_html($dm->fave_coaster); ?></span><?php endif; ?>
+                                        <?php if (!empty($dm->coaster_count) && $dm->coaster_count > 0) : ?><span>🎢 <?php echo esc_html(number_format($dm->coaster_count)); ?> credits</span><?php endif; ?>
                                         <?php if ($dm->instagram) : ?><span style="color:var(--red);">@<?php echo esc_html($dm->instagram); ?></span><?php endif; ?>
                                         <?php if ( ! empty($dm->zip) ) : ?><span data-zip-lookup="<?php echo esc_attr($dm->zip); ?>">📍 <?php echo esc_html($dm->zip); ?></span><?php endif; ?>
                                     </div>
@@ -422,6 +442,18 @@ $active_tab   = sanitize_key( $_GET['tab'] ?? ( $is_logged_in ? 'dashboard' : 'l
                 <!-- MY ACCOUNT -->
                 <div id="panel-account" class="portal-panel <?php echo $active_tab === 'account' ? 'active' : ''; ?>">
 
+                    <!-- Member ID card link — full card is pinned to top of Dashboard -->
+                    <?php if ( $member && blusiast_can_see_member_id( $member ) ) : ?>
+                    <div class="portal-card" style="display:flex;align-items:center;gap:16px;padding:16px 20px;">
+                        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--red)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
+                        <div style="flex:1;">
+                            <div style="font-family:var(--font-display);font-size:14px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--white);margin-bottom:2px;">Member ID Card</div>
+                            <div style="font-size:12px;color:var(--gray-1);"><?php echo esc_html( blusiast_get_member_number( $member ) ); ?> · Your QR card is pinned to your Dashboard</div>
+                        </div>
+                        <a href="?tab=dashboard" class="bl-btn bl-btn--ghost bl-btn--sm" data-panel="dashboard">View Card →</a>
+                    </div>
+                    <?php endif; ?>
+
                     <!-- Profile -->
                     <div class="portal-card">
                         <div class="portal-card__title"><span class="portal-card__title-dot"></span> Profile Information</div>
@@ -462,6 +494,20 @@ $active_tab   = sanitize_key( $_GET['tab'] ?? ( $is_logged_in ? 'dashboard' : 'l
                                     <input class="portal-input" type="text" id="pf-coaster" name="fave_coaster"
                                            placeholder="e.g. Steel Vengeance"
                                            value="<?php echo esc_attr( $member ? $member->fave_coaster : '' ); ?>">
+                                </div>
+                            </div>
+                            <div class="portal-field">
+                                <label class="portal-label" for="pf-coaster-count">
+                                    Coaster Credits
+                                    <span style="font-weight:400;text-transform:none;letter-spacing:0;"> — how many unique coasters have you ridden?</span>
+                                </label>
+                                <div style="display:flex;align-items:center;gap:12px;">
+                                    <input class="portal-input" type="number" id="pf-coaster-count" name="coaster_count"
+                                           min="0" max="99999"
+                                           placeholder="e.g. 142"
+                                           value="<?php echo esc_attr( $member && isset($member->coaster_count) ? (int)$member->coaster_count : 0 ); ?>"
+                                           style="max-width:140px;">
+                                    <span style="font-size:13px;color:var(--gray-2);">unique coasters</span>
                                 </div>
                             </div>
                             <div class="portal-field">
@@ -579,9 +625,54 @@ $active_tab   = sanitize_key( $_GET['tab'] ?? ( $is_logged_in ? 'dashboard' : 'l
                                     <label class="portal-label">Coaster Name <span style="color:var(--red);">*</span></label>
                                     <input class="portal-input" type="text" name="coaster_name" required placeholder="e.g. Steel Vengeance">
                                 </div>
-                                <div class="portal-field">
+                                <div class="portal-field" style="position:relative;">
                                     <label class="portal-label">Park <span style="color:var(--red);">*</span></label>
-                                    <input class="portal-input" type="text" name="park_name" required placeholder="e.g. Cedar Point">
+                                    <!-- hidden real value submitted with form -->
+                                    <input type="hidden" name="park_name" id="park_name_value" required>
+                                    <!-- visible typeahead search -->
+                                    <input class="portal-input" type="text" id="park_search_input" autocomplete="off"
+                                           placeholder="Search for a park…"
+                                           style="padding-right:32px;">
+                                    <span id="park_search_clear" title="Clear"
+                                          style="display:none;position:absolute;right:10px;top:50%;transform:translateY(8px);cursor:pointer;color:var(--gray-1);font-size:18px;line-height:1;">&#x2715;</span>
+                                    <!-- dropdown -->
+                                    <div id="park_dropdown"
+                                         style="display:none;position:absolute;left:0;right:0;top:100%;z-index:200;
+                                                background:var(--surface-2,#1a1a1a);border:1px solid var(--surface-3,#333);
+                                                border-radius:0 0 8px 8px;max-height:220px;overflow-y:auto;box-shadow:0 8px 24px rgba(0,0,0,.6);">
+                                    </div>
+                                    <!-- add-new sub-form (hidden until needed) -->
+                                    <div id="park_add_panel"
+                                         style="display:none;margin-top:8px;padding:14px;background:var(--surface-2,#1a1a1a);
+                                                border:1px solid var(--red,#CC0000);border-radius:8px;">
+                                        <p style="margin:0 0 10px;font-size:13px;color:var(--gray-1);">
+                                            Park not in our list yet — add it below and it will be saved for everyone.
+                                        </p>
+                                        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px;">
+                                            <div>
+                                                <label class="portal-label" style="font-size:11px;">Park Name *</label>
+                                                <input class="portal-input" type="text" id="park_add_name" placeholder="e.g. Cedar Point" style="font-size:13px;">
+                                            </div>
+                                            <div>
+                                                <label class="portal-label" style="font-size:11px;">Location (optional)</label>
+                                                <input class="portal-input" type="text" id="park_add_location" placeholder="e.g. Sandusky, OH" style="font-size:13px;">
+                                            </div>
+                                        </div>
+                                        <div style="display:flex;gap:8px;align-items:center;">
+                                            <button type="button" id="park_add_submit" class="bl-btn bl-btn--primary" style="font-size:13px;padding:8px 16px;">
+                                                Add Park &amp; Select
+                                            </button>
+                                            <button type="button" id="park_add_cancel" style="background:none;border:none;color:var(--gray-1);font-size:13px;cursor:pointer;text-decoration:underline;">
+                                                Cancel
+                                            </button>
+                                            <span id="park_add_msg" style="font-size:12px;color:var(--red);"></span>
+                                        </div>
+                                    </div>
+                                    <div id="park_selected_badge" style="display:none;margin-top:6px;padding:6px 12px;background:var(--surface-3,#222);border-radius:6px;font-size:13px;display:none;align-items:center;gap:8px;">
+                                        <span style="color:var(--green,#4caf50);">✓</span>
+                                        <span id="park_selected_label" style="color:var(--white);font-weight:600;"></span>
+                                        <button type="button" id="park_selected_change" style="background:none;border:none;color:var(--gray-1);font-size:12px;cursor:pointer;text-decoration:underline;margin-left:auto;">Change</button>
+                                    </div>
                                 </div>
                             </div>
                             <div class="portal-form-row" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;">
