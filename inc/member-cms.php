@@ -77,12 +77,13 @@ add_action( 'wp_ajax_blusiast_brevo_bulk_sync', function() {
     }
 
     global $wpdb;
-    $mtable = $wpdb->prefix . 'bl_members';
-    $offset = absint( $_POST['offset'] ?? 0 );
-    $batch  = 50;
+    $mtable  = $wpdb->prefix . 'bl_members';
+    $offset  = absint( $_POST['offset'] ?? 0 );
+    $batch   = 50;
+    $list_id = (int) get_option( 'bl_brevo_list_id', 0 );
 
     $members = $wpdb->get_results( $wpdb->prepare(
-        "SELECT email, first_name, last_name, account_status FROM $mtable
+        "SELECT id, email, first_name, last_name, account_status FROM $mtable
          WHERE account_status != 'banned' ORDER BY id ASC LIMIT %d OFFSET %d",
         $batch, $offset
     ) );
@@ -91,17 +92,72 @@ add_action( 'wp_ajax_blusiast_brevo_bulk_sync', function() {
         wp_send_json_success( [ 'done' => true, 'message' => 'All members synced to Brevo.' ] );
     }
 
-    $synced = 0;
+    $synced  = 0;
+    $skipped = 0;
+    $failed  = 0;
+    $errors  = [];
+
     foreach ( $members as $m ) {
-        blusiast_brevo_sync_contact( $m->email, $m->first_name, $m->last_name, $m->account_status );
-        $synced++;
+        if ( ! is_email( $m->email ) ) {
+            $failed++;
+            $errors[] = "#{$m->id} invalid email: {$m->email}";
+            continue;
+        }
+
+        $payload = [
+            'email'         => $m->email,
+            'updateEnabled' => true,
+            'attributes'    => [
+                'FIRSTNAME' => $m->first_name,
+                'LASTNAME'  => $m->last_name,
+                'STATUS'    => $m->account_status,
+            ],
+        ];
+        if ( $list_id > 0 ) {
+            $payload['listIds'] = [ $list_id ];
+        }
+
+        $response = wp_remote_post( 'https://api.brevo.com/v3/contacts', [
+            'timeout' => 10,
+            'headers' => [
+                'api-key'      => $api_key,
+                'Content-Type' => 'application/json',
+                'Accept'       => 'application/json',
+            ],
+            'body' => wp_json_encode( $payload ),
+        ] );
+
+        if ( is_wp_error( $response ) ) {
+            $failed++;
+            $errors[] = "#{$m->id} {$m->email}: " . $response->get_error_message();
+            continue;
+        }
+
+        $code = wp_remote_retrieve_response_code( $response );
+        $body = json_decode( wp_remote_retrieve_body( $response ), true );
+
+        if ( in_array( $code, [ 200, 201, 204 ], true ) ) {
+            $synced++;
+        } elseif ( $code === 400 && isset( $body['code'] ) && in_array( $body['code'], [ 'DOC_UNSUBSCRIBED', 'invalid_parameter', 'duplicate_parameter' ], true ) ) {
+            // Brevo refuses to re-add contacts who have unsubscribed — nothing we can do via API
+            $skipped++;
+            $errors[] = "#{$m->id} {$m->email}: skipped — {$body['code']}";
+        } else {
+            $failed++;
+            $code_str = $body['code']    ?? 'unknown';
+            $msg_str  = $body['message'] ?? wp_remote_retrieve_body( $response );
+            $errors[] = "#{$m->id} {$m->email}: HTTP {$code} {$code_str} — " . substr( $msg_str, 0, 120 );
+        }
     }
 
     wp_send_json_success( [
         'done'        => false,
         'synced'      => $synced,
+        'skipped'     => $skipped,
+        'failed'      => $failed,
+        'errors'      => $errors,
         'next_offset' => $offset + $batch,
-        'message'     => "Synced {$synced} members (offset {$offset})…",
+        'message'     => "Offset {$offset}: {$synced} synced, {$skipped} skipped, {$failed} failed",
     ] );
 } );
 
@@ -1209,6 +1265,8 @@ jQuery(function($){
     $('#bl-brevo-sync-spinner').show();
     result.hide();
 
+    var totalSynced=0, totalSkipped=0, totalFailed=0, allErrors=[];
+
     function syncBatch(offset){
       $.post(bluAdmin.ajaxUrl,{
         action:'blusiast_brevo_bulk_sync',
@@ -1223,12 +1281,24 @@ jQuery(function($){
           return;
         }
         if(res.data.done){
-          result.css('color','#5cb85c').text('✓ '+res.data.message).show();
+          var summary = '✓ Done — '+totalSynced+' synced, '+totalSkipped+' skipped (unsubscribed in Brevo), '+totalFailed+' failed.';
+          if(allErrors.length){
+            summary += '\n\nSkipped/failed:\n'+allErrors.join('\n');
+          }
+          result.css({'color':'#5cb85c','white-space':'pre-wrap'}).text(summary).show();
           btn.prop('disabled',false);
           $('#bl-brevo-sync-label').show();
           $('#bl-brevo-sync-spinner').hide();
         } else {
-          result.css('color','#f5a623').text(res.data.message).show();
+          totalSynced  += res.data.synced  || 0;
+          totalSkipped += res.data.skipped || 0;
+          totalFailed  += res.data.failed  || 0;
+          if(res.data.errors && res.data.errors.length){
+            allErrors = allErrors.concat(res.data.errors);
+          }
+          result.css('color','#f5a623').text(
+            'Syncing… '+totalSynced+' synced, '+totalSkipped+' skipped, '+totalFailed+' failed so far (offset '+res.data.next_offset+')'
+          ).show();
           syncBatch(res.data.next_offset);
         }
       });
