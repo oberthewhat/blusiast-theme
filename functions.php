@@ -5,7 +5,7 @@
 
 if ( ! defined( 'ABSPATH' ) ) exit;
 
-define( 'BLUSIAST_VERSION', '1.0.1' );
+define( 'BLUSIAST_VERSION', '1.0.2' );
 define( 'BLUSIAST_DIR',     get_template_directory() );
 define( 'BLUSIAST_URI',     get_template_directory_uri() );
 
