@@ -1,0 +1,19 @@
+name: Deploy theme to GoDaddy
+
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository Code
+        uses: actions/checkout@v3
+
+      - name: Synchronize theme to GoDaddy
+        uses: godaddy-wordpress/gd-wordpress-deployer@v1
+        with:
+          remote_host: "ch4.d27.myftpupload.com"
+          ssh_user: "git_deployer_b5940a992f_1142370"
+          ssh_private_key: ${{ secrets.PRIVATE_KEY }}
+          deployment_dest: "wp-content/themes/blusiast"
