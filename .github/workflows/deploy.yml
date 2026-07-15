@@ -1,6 +1,8 @@
 name: Deploy theme to GoDaddy
 
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
 
 jobs:
@@ -8,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository Code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Synchronize theme to GoDaddy
         uses: godaddy-wordpress/gd-wordpress-deployer@v1
