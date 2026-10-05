@@ -73,7 +73,7 @@
                     <div class="mission__img-placeholder" aria-hidden="true"></div>
                 <?php endif; ?>
                 <div class="mission__float-card" aria-hidden="true">
-                    <span class="mission__float-num">100+</span>
+                    <span class="mission__float-num">200+</span>
                     <span class="mission__float-label"><?php esc_html_e('Members & Growing', 'blusiast'); ?></span>
                 </div>
             </div>
