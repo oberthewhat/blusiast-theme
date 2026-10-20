@@ -1,7 +1,9 @@
 <?php // archive.php — Archive (blog, events, coasters)
 get_header();
 
-$post_type  = get_post_type();
+$post_type = is_post_type_archive()
+    ? get_query_var( 'post_type' )
+    : get_post_type();
 $pt_obj     = get_post_type_object( $post_type );
 $is_events  = ( $post_type === 'bl_event' );
 $is_coaster = ( $post_type === 'bl_coaster' );
