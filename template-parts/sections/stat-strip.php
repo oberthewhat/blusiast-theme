@@ -3,7 +3,7 @@ $s1n = function_exists('get_field') ? get_field('hp_stat_1_num')   ?: '2022'   :
 $s1l = function_exists('get_field') ? get_field('hp_stat_1_label') ?: 'Founded': 'Founded';
 $s2n = function_exists('get_field') ? get_field('hp_stat_2_num')   ?: 'Global' : 'Global';
 $s2l = function_exists('get_field') ? get_field('hp_stat_2_label') ?: 'Reach'  : 'Reach';
-$s3n = function_exists('get_field') ? get_field('hp_stat_3_num')   ?: '100+'   : '100+';
+$s3n = function_exists('get_field') ? get_field('hp_stat_3_num')   ?: '200+'   : '200+';
 $s3l = function_exists('get_field') ? get_field('hp_stat_3_label') ?: 'Members': 'Members';
 ?>
 <div class="stat-strip" aria-hidden="true">
